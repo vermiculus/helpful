@@ -719,30 +719,32 @@ hooks.")
 (defun helpful--source (sym callable-p)
   "Return the source code of SYM.
 If the source code cannot be found, return the sexp used."
-  (-let (((buf start-pos created) (helpful--definition sym callable-p))
-         (source nil))
-    (when (and buf start-pos)
-      (with-current-buffer buf
-        (save-excursion
-          (save-restriction
-            (goto-char start-pos)
-            (narrow-to-defun)
-            (setq source (buffer-substring-no-properties (point-min) (point-max))))))
-      (setq source (s-trim-right source))
-      (when (and source (buffer-file-name buf))
-        (setq source (propertize source
-                                 'helpful-path (buffer-file-name buf)
-                                 'helpful-pos start-pos
-                                 'helpful-pos-is-start t))))
-    (when (and buf created)
-      (kill-buffer buf))
-    (if source
-        source
-      ;; Could not find source -- probably defined interactively, or via
-      ;; a macro, or file has changed.
-      ;; TODO: verify that the source hasn't changed before showing.
-      ;; TODO: offer to download C sources for current version.
-      (indirect-function sym))))
+  (when (or find-function-C-source-directory
+            (not (helpful--primitive-p sym callable-p)))
+    (-let (((buf start-pos created) (helpful--definition sym callable-p))
+           (source nil))
+      (when (and buf start-pos)
+        (with-current-buffer buf
+          (save-excursion
+            (save-restriction
+              (goto-char start-pos)
+              (narrow-to-defun)
+              (setq source (buffer-substring-no-properties (point-min) (point-max))))))
+        (setq source (s-trim-right source))
+        (when (and source (buffer-file-name buf))
+          (setq source (propertize source
+                                   'helpful-path (buffer-file-name buf)
+                                   'helpful-pos start-pos
+                                   'helpful-pos-is-start t))))
+      (when (and buf created)
+        (kill-buffer buf))
+      (if source
+          source
+        ;; Could not find source -- probably defined interactively, or via
+        ;; a macro, or file has changed.
+        ;; TODO: verify that the source hasn't changed before showing.
+        ;; TODO: offer to download C sources for current version.
+        (indirect-function sym)))))
 
 (defun helpful--in-manual-p (sym)
   "Return non-nil if SYM is in an Info manual."
@@ -848,14 +850,16 @@ buffer."
 
 (defun helpful--source-path (sym callable-p)
   "Return the path where SYM is defined."
-  (-let* (((buf _ opened) (helpful--definition sym callable-p))
-          (path nil))
-    (when buf
-      (setq path (buffer-file-name buf))
-      (when opened
-        ;; If we've just created this buffer, close it.
-        (kill-buffer buf)))
-    path))
+  (when (or find-function-C-source-directory
+            (not (helpful--primitive-p sym callable-p)))
+    (-let* (((buf _ opened) (helpful--definition sym callable-p))
+            (path nil))
+      (when buf
+        (setq path (buffer-file-name buf))
+        (when opened
+          ;; If we've just created this buffer, close it.
+          (kill-buffer buf)))
+      path)))
 
 (defun helpful--source-pos (sym callable-p)
   "Return the file position where SYM is defined."
@@ -1129,12 +1133,8 @@ state of the current symbol."
                     ((not helpful--callable-p) "Variable")
                     ((macrop helpful--sym) "Macro")
                     (t "Function")))
-         (look-for-src (or (not primitive-p)
-                           find-function-C-source-directory))
-         (source (when look-for-src
-                   (helpful--source helpful--sym helpful--callable-p)))
-         (source-path (when look-for-src
-                        (helpful--source-path helpful--sym helpful--callable-p)))
+         (source (helpful--source helpful--sym helpful--callable-p))
+         (source-path (helpful--source-path helpful--sym helpful--callable-p))
          (references (helpful--calculate-references
                       helpful--sym helpful--callable-p
                       source-path)))
